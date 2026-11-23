@@ -1,0 +1,52 @@
+name = "async-ai-job-queue"
+main = "src/index.ts"
+compatibility_date = "2026-11-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Create these resources once, then paste the IDs below ────────────────────
+#   npx wrangler d1 create async-ai-jobs-db
+#   npx wrangler kv namespace create CACHE
+#   npx wrangler queues create async-ai-jobs
+#   npx wrangler queues create async-ai-jobs-dlq
+#   npx wrangler d1 migrations apply async-ai-jobs-db --local
+#   npx wrangler d1 migrations apply async-ai-jobs-db --remote
+# ─────────────────────────────────────────────────────────────────────────────
+
+[vars]
+DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
+FALLBACK_MODELS = "inclusionai/ling-3.2-flash:free,baidu/ernie-5.5-flash-preview:free,particle-ai/particle-1:free"
+REQUEST_TIMEOUT_MS = "20000"
+CACHE_TTL_SECONDS = "2592000"
+MAX_SOURCE_CHARS = "12000"
+MAX_FETCH_BYTES = "2000000"
+MAX_ATTEMPTS = "3"
+DEMO_DAILY_LIMIT = "20"
+ALLOWED_ORIGIN = "https://biswajit-halder.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "async-ai-jobs-db"
+database_id = "bae92691-7895-456b-a70b-33dc18f48c2e"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "ac3e10725296441ab3ac849131a439c8" # ASYNC_AI_JOB_QUEUE_CACHE
+
+[[queues.producers]]
+queue = "async-ai-jobs"
+binding = "JOBS"
+
+[[queues.consumers]]
+queue = "async-ai-jobs"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "async-ai-jobs-dlq"
+
+# Quota-exhausted jobs are requeued lazily on the next submission
+# (see src/services/recovery.ts). A cron trigger is intentionally not requested:
+# this account has already reached the Workers Free limit of 5 cron triggers.
+
+# Secrets (set with `wrangler secret put`):
+#   OPENROUTER_API_KEY
+#   ADMIN_TOKEN

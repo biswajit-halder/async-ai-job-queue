@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Async AI Job Queue — Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="glow"></div>
+  <main class="shell">
+    <header>
+      <div class="pill">Portfolio project · $0 cost</div>
+      <h1>Async AI <span>Job Queue</span></h1>
+      <p class="subtitle">Submit a job, get an id immediately, and watch a Cloudflare Queue consumer summarize the content with a free model. Poll status, or receive a signed callback.</p>
+    </header>
+
+    <section class="card">
+      <div class="card-head"><h2>Live demo</h2><div id="badges" class="badges"></div></div>
+      <label class="field">
+        <span>API base URL</span>
+        <input id="apiBase" type="url" value="https://async-ai-job-queue.bhalder.workers.dev" />
+        <small>Replace with your Worker URL. Public demo jobs are capped at 20/day.</small>
+      </label>
+      <div id="examples" class="examples"><em>Loading examples…</em></div>
+      <div class="actions">
+        <button id="submit" class="primary" disabled>Submit demo job <span aria-hidden="true">→</span></button>
+        <span class="cache-note">Pre-warmed with <code>POST /admin/seed</code> — zero model calls.</span>
+      </div>
+      <pre id="result"><code>// choose an example and submit</code></pre>
+      <div id="error" class="error" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>How it works</h2></div>
+      <div class="steps">
+        <div class="step"><b>01 · Submit</b><p>Hono validates the input, hashes the normalized content, writes a <code>queued</code> row in D1 and pushes a small message to Cloudflare Queues. The client gets a 202 instantly.</p></div>
+        <div class="step"><b>02 · Process</b><p>The consumer claims the job, fetches the URL safely (DNS-over-HTTPS, private-IP blocking, redirect re-checks), and cleans the text.</p></div>
+        <div class="step"><b>03 · Cache or call</b><p>A KV lookup by content hash can skip the model entirely. On a miss, a free OpenRouter model returns schema-validated JSON with a repair retry.</p></div>
+        <div class="step"><b>04 · Persist</b><p>The result and token usage land in D1, the job becomes <code>completed</code>, and an HMAC-signed callback is delivered if one was requested.</p></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Try it with curl</h2></div>
+      <pre><code>BASE=https://your-worker.workers.dev
+
+curl -s -X POST "$BASE/v1/jobs" \
+  -H "Authorization: Bearer &lt;API_KEY&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"A long article about content delivery networks..."}'
+
+curl -s "$BASE/v1/jobs/&lt;JOB_ID&gt;" -H "Authorization: Bearer &lt;API_KEY&gt;"</code></pre>
+    </section>
+
+    <footer>
+      Hono · Cloudflare Workers · Queues · D1 · KV · free OpenRouter models ·
+      <a href="https://github.com/biswajit-halder/async-ai-job-queue" target="_blank" rel="noreferrer">source</a>
+    </footer>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

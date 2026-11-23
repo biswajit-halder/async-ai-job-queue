@@ -1,0 +1,358 @@
+openapi: 3.0.3
+info:
+  title: Async AI Job Queue API
+  version: 1.0.0
+  description: |
+    Submit a URL or text, receive a job id, and poll for a summary produced by a
+    Cloudflare Queue consumer using free OpenRouter models. All job state lives in D1;
+    identical content hits a KV cache and costs zero model calls.
+  license:
+    name: MIT
+servers:
+  - url: https://async-ai-job-queue.bhalder.workers.dev
+    description: Deployed Worker
+  - url: http://localhost:8787
+    description: Local wrangler dev
+tags:
+  - name: Jobs
+  - name: Demo
+  - name: Admin
+  - name: System
+
+paths:
+  /v1/jobs:
+    post:
+      tags: [Jobs]
+      summary: Submit a summarization job
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateJobRequest' }
+            examples:
+              text:
+                summary: Submit raw text
+                value: { text: 'A content delivery network is a distributed group of proxy servers that serves cached content close to users...' }
+              url:
+                summary: Submit a URL with a signed callback
+                value:
+                  url: https://example.com/article
+                  callback_url: https://example.com/hook
+                  callback_secret: a-long-shared-secret
+      responses:
+        '202':
+          description: Job accepted and queued
+          headers:
+            Location: { schema: { type: string }, description: Poll URL }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Jobs]
+      summary: List jobs for the current key
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0, minimum: 0 } }
+      responses:
+        '200':
+          description: Paginated list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  pagination:
+                    type: object
+                    properties:
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/jobs/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string }, example: job_01jabc }
+    get:
+      tags: [Jobs]
+      summary: Poll job status and result
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: Current job state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Jobs]
+      summary: Cancel a job that is still queued
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '204': { description: Cancelled }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/demo/examples:
+    get:
+      tags: [Demo]
+      summary: List canned demo inputs
+      responses:
+        '200':
+          description: Demo examples
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  examples:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        preview: { type: string }
+
+  /v1/demo/jobs:
+    post:
+      tags: [Demo]
+      summary: Submit a pre-warmed demo job (no key required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, example: CDNs }
+      responses:
+        '202':
+          description: Demo job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, example: queued }
+                  label: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/demo/jobs/{id}:
+    get:
+      tags: [Demo]
+      summary: Poll a demo job
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Demo job state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string }
+                  error: { type: string, nullable: true }
+                  result:
+                    type: object
+                    nullable: true
+                    properties:
+                      summary: { type: string }
+                      key_points: { type: array, items: { type: string } }
+
+  /admin/keys:
+    post:
+      tags: [Admin]
+      summary: Issue an API key (raw key shown once)
+      security: [{ AdminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, default: demo }
+                daily_limit: { type: integer, default: 50 }
+                per_minute_limit: { type: integer, default: 20 }
+      responses:
+        '201':
+          description: Key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string, example: ajk_ab12cd34... }
+                  note: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [Admin]
+      summary: List API key metadata
+      security: [{ AdminToken: [] }]
+      responses:
+        '200': { description: Key list, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object } } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/keys/{id}:
+    delete:
+      tags: [Admin]
+      summary: Revoke an API key
+      security: [{ AdminToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/seed:
+    post:
+      tags: [Admin]
+      summary: Pre-warm the demo cache with zero LLM calls
+      security: [{ AdminToken: [] }]
+      responses:
+        '200':
+          description: Seeded examples
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seeded: { type: integer, example: 3 }
+                  llmCalls: { type: integer, example: 0 }
+                  examples: { type: array, items: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Job counts by status
+      security: [{ AdminToken: [] }]
+      responses:
+        '200': { description: Counts, content: { application/json: { schema: { type: object } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/usage:
+    get:
+      tags: [Admin]
+      summary: Cache hits vs LLM calls for a key
+      security: [{ AdminToken: [] }]
+      parameters:
+        - { in: query, name: key_id, required: true, schema: { type: string } }
+        - { in: query, name: hours, schema: { type: integer, default: 24 } }
+      responses:
+        '200': { description: Usage summary, content: { application/json: { schema: { type: object } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time: { type: string, format: date-time }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: Issued by POST /admin/keys
+    AdminToken:
+      type: apiKey
+      in: header
+      name: x-admin-token
+  schemas:
+    CreateJobRequest:
+      type: object
+      description: Provide exactly one of url or text.
+      properties:
+        kind: { type: string, enum: [summary], default: summary }
+        url: { type: string, format: uri, description: 'http(s) URL, max 2048 chars' }
+        text: { type: string, minLength: 40, maxLength: 200000 }
+        callback_url: { type: string, format: uri, description: 'Receives an HMAC-signed POST on completion' }
+        callback_secret: { type: string, minLength: 8, maxLength: 128 }
+    JobAccepted:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string, example: queued }
+        poll_url: { type: string, example: /v1/jobs/job_01jabc }
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [queued, processing, completed, failed, dead_letter, cancelled] }
+        kind: { type: string }
+        source_type: { type: string, enum: [url, text] }
+        source_ref: { type: string }
+        attempts: { type: integer }
+        error: { type: string, nullable: true }
+        result: { $ref: '#/components/schemas/Result' }
+        created_at: { type: string }
+        updated_at: { type: string }
+        completed_at: { type: string, nullable: true }
+    Result:
+      type: object
+      nullable: true
+      properties:
+        summary: { type: string }
+        key_points: { type: array, items: { type: string } }
+        model: { type: string }
+        source_type: { type: string }
+        source_ref: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        created_at: { type: string }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            retryable: { type: boolean }
+            details: {}
+  responses:
+    BadRequest:
+      description: Validation failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Missing or invalid credential
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Resource is in a conflicting state
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

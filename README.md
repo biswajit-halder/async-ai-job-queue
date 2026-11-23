@@ -6,7 +6,7 @@ Built with **TypeScript + Hono on Cloudflare Workers**, **Queues** for async del
 
 > Narrative: *"I built a cost-aware AI backend platform."* This is the async counterpart to the LLM Gateway and the Webhook Bot.
 
-**Live API:** `https://async-ai-job-queue.bhalder.workers.dev` · **Repo:** `https://github.com/biswajit-halder/async-ai-job-queue`
+**Live API:** `https://async-ai-job-queue.bhalder.workers.dev` · **Demo:** `https://biswajit-halder.github.io/async-ai-job-queue/` · **Repo:** `https://github.com/biswajit-halder/async-ai-job-queue`
 
 ---
 
@@ -204,6 +204,8 @@ npx wrangler d1 migrations apply async-ai-jobs-db --remote
 npm run deploy
 curl -s -X POST https://<your-worker>/admin/seed -H 'x-admin-token: <ADMIN_TOKEN>'
 ```
+
+`.github/workflows/ci.yml` runs typecheck + tests on every push. `.github/workflows/deploy.yml` redeploys the Worker on pushes to `main`; add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repo secrets to enable it. The static demo is served from the `gh-pages` branch via GitHub Pages.
 
 Refresh `DEFAULT_MODEL` / `FALLBACK_MODELS` from <https://openrouter.ai/models?max_price=0> whenever the free roster changes. The model list used here was checked on 2026-11-23.
 
